@@ -31,7 +31,7 @@ def delUserInfo(user_id, dir_id)
   recording_start = 0
   meeting_end = 0
   $start_speaking = 0
-  current_presenter = "unknown"
+  current_presenter = 'unknown'
   rows = []
   rows << %w[event user_Id module removed start end]
 
@@ -53,24 +53,43 @@ def delUserInfo(user_id, dir_id)
       elsif %w[ResizeAndMoveSlideEvent GotoSlideEvent].include? e_name
         if current_presenter == user_id
           remove_event(event, rows, directory, recording_start, meeting_start)
+          next
         end
-        next
-      elsif %w[DeskshareStartedEvent DeskshareStoppedEvent].include? e_name
-        if current_presenter == user_id
-          remove_event(event, rows, directory, recording_start, meeting_start)
-        end
-        next
       elsif e_name.eql? 'SharePresentationEvent'
-        pres_dir = event.at_xpath('presentationName').content.to_s
         if current_presenter == user_id
-          system("rm -r #{directory}/presentation/#{pres_dir}")
-          puts "presentation file #{directory}/presentation/#{pres_dir} deleted."
-          remove_event(event, rows, directory, recording_start, meeting_start)
+          pres_dir = event.at_xpath('presentationName').content.to_s
+          if dry?
+            puts "presentation folder to be deleter #{pres_dir}"
+            display_event(event, rows, 'X')
+          else
+            system("rm -r #{directory}/presentation/#{pres_dir}")
+            puts "presentation file #{directory}/presentation/#{pres_dir} deleted."
+            remove_event(event, rows, directory, recording_start, meeting_start)
+          end
+          next
+        end
+      elsif e_name.eql? 'DeskshareStartedEvent'
+        if current_presenter == user_id
+          stream_dir = event.at_xpath('stream').content.to_s
+          Dir.glob("#{directory}/deskshare/#{stream_dir}.*") do |desk_file|
+            if dry?
+              puts "deskshare file to be deleted : #{desk_file}"
+              display_event(event, rows, 'X')
+            else
+              system("rm -r #{desk_file}")
+              puts "Deskshare file #{directory}/presentation/#{stream_dir} deleted."
+              remove_event(event, rows, directory, recording_start, meeting_start)
+            end
+          end
           next
         end
       elsif %w[PollStartedRecordEvent PollStoppedRecordEvent UserRespondedToPollRecordEvent].include? e_name
         if current_presenter == user_id
-          remove_event(event, rows, directory, recording_start, meeting_start)
+          if dry?
+            display_event(event, rows, 'X')
+          else
+            remove_event(event, rows, directory, recording_start, meeting_start)
+          end
         end
         next
       end
