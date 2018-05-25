@@ -71,10 +71,9 @@ def user?(event, user_id)
   userid.nil? ? false : userid.content == user_id
 end
 
-unless opts[:userId].nil? || opts[:recordingID].nil?
+if opts[:userId].nil? || opts[:recordingID].nil?
+  puts 'please provide userId and recording ID like so:'
+  puts './bbb-user-data -u <userID> -r <recordingId>'
+else
   get_user_info(opts[:userId], opts[:recordingID])
-  return
 end
-
-puts 'please provide userId and recording ID like so:'
-puts './bbb-user-data -u <userID> -r <recordingId>'
