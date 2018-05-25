@@ -1,5 +1,7 @@
 # gdpr
 
+Note: This is repository is our development area for two GDBR utilities for BigBlueButton server.  They will shortly migrate into the BigBlueButton core.
+
 The new EU General Data Protection Regulation (aka GDPR) made every company including BlindSideNetworks, go further to protect your data. We want to make you aware of some recent related updates:
 
 We added two scripts bbb-user-data && bbb-user-data-forget.
