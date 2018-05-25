@@ -10,7 +10,7 @@ require 'csv'
 
 opts = Trollop.options do
   opt :userId, 'userId', type: :string
-  opt :recordingID, 'recordingID', type: :string
+  opt :recordingPath, 'recordingPath', type: :string
 end
 
 def get_user_info(userid, dirid)
@@ -71,9 +71,9 @@ def user?(event, user_id)
   userid.nil? ? false : userid.content == user_id
 end
 
-if opts[:userId].nil? || opts[:recordingID].nil?
+if opts[:userId].nil? || opts[:recordingPath].nil?
   puts 'please provide userId and recording ID like so:'
-  puts './bbb-user-data -u <userID> -r <recordingId>'
+  puts './bbb-user-data -u <userID> -r <recordingPath>'
 else
-  get_user_info(opts[:userId], opts[:recordingID])
+  get_user_info(opts[:userId], opts[:recordingPath])
 end
