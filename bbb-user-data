@@ -1,12 +1,29 @@
 #!/usr/bin/ruby
 
 #
+# BlueButton open source conferencing system - http://www.bigbluebutton.org/
+#
+# Copyright (c) 2018 BigBlueButton Inc. and by respective authors (see below).
+#
+# This program is free software; you can redistribute it and/or modify it under the
+# terms of the GNU Lesser General Public License as published by the Free Software
+# Foundation; either version 3.0 of the License, or (at your option) any later
+# version.
+#
+# BigBlueButton is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License along
+# with BigBlueButton; if not, see <http://www.gnu.org/licenses/>.
+#
 # bbb-user-data.rb
 #
 
 require 'trollop'
 require 'nokogiri'
 require 'csv'
+require 'terminal-table'
 
 opts = Trollop.options do
   opt :userId, 'userId', type: :string
@@ -14,17 +31,27 @@ opts = Trollop.options do
 end
 
 def get_user_info(userid, dirid)
+  rows = []
   CSV.open('info.csv', 'wb') do |csv|
     # Search in all directories for a file of name events.xml
     csv << ["Info in database for user with ID(#{userid})"]
     csv << ['event', 'timestamp', 'module', 'Msg (if applicable)']
+    puts "User: #{userid}\tDirectory: #{dirid}"
     Dir.glob("#{dirid}/events.xml") do |file|
       doc = Nokogiri::XML(File.open(File.expand_path(file)))
       events = doc.xpath('//event')
-      handle_events(csv, userid, events)
+      handle_events(csv, userid, events, rows)
     end
+    puts "user info's generated. Path: #{Dir.pwd}/info.csv"
   end
-  puts "user info's generated. Path: #{Dir.pwd}/info.csv"
+  display_table(userid, rows)
+end
+
+def display_table(user_id, rows)
+  # rows << "data concerning user with Id: #{user_id}"
+  
+  table = Terminal::Table.new title: "Info for user with id: #{user_id}", headings: %w[event timestamp module], rows: rows
+  puts table
 end
 
 def get_data(csv, userid, dirid)
@@ -35,14 +62,14 @@ def get_data(csv, userid, dirid)
   end
 end
 
-def handle_events(csv, userid, events)
+def handle_events(csv, userid, events, rows)
   meeting_start = Integer(events.first.at_xpath('@timestamp').to_s)
   events.each do |e|
     e_module = e.at_xpath('@module').to_s
     t_stamp = f_time(Integer(e.at_xpath('@timestamp').to_s) - meeting_start)
     e_name = e.at_xpath('@eventname').to_s
     next if %w[PRESENTATION WHITEBOARD].include? e_module
-    user?(e, userid) && handle_event(e, e_name, t_stamp, e_module, csv)
+    user?(e, userid) && handle_event(e, e_name, t_stamp, e_module, csv, rows)
   end
 end
 
@@ -50,12 +77,13 @@ def f_time(time)
   Time.at(time / 1000).utc.strftime('%H:%M:%S')
 end
 
-def handle_event(event, e_name, t_stamp, e_module, csv)
-  if e_module.eql? 'CHAT'
-    csv << [e_name, t_stamp, e_module, event.at_xpath('message').content.to_s.strip]
-    return
-  end
-  csv << [e_name, t_stamp, e_module]
+def handle_event(event, e_name, t_stamp, e_module, csv, rows)
+  csv << if e_module.eql? 'CHAT'
+           [e_name, t_stamp, e_module, event.at_xpath('message').content.to_s.strip]
+         else
+           [e_name, t_stamp, e_module]
+         end
+  rows << [e_name, t_stamp, e_module]
 end
 
 def user?(event, user_id)
@@ -71,9 +99,15 @@ def user?(event, user_id)
   userid.nil? ? false : userid.content == user_id
 end
 
+def check_file_exist(pathtofile)
+  File.exist?("#{pathtofile}/events.xml")
+end
+
 if opts[:userId].nil? || opts[:recordingPath].nil?
   puts 'please provide userId and recording ID like so:'
   puts './bbb-user-data -u <userID> -r <recordingPath>'
+elsif check_file_exist(opts[:recordingPath].chomp('/'))
+  get_user_info(opts[:userId], opts[:recordingPath].chomp('/'))
 else
-  get_user_info(opts[:userId], opts[:recordingPath])
+  puts "The path you provided does not exist.\n Path: #{opts[:recordingPath]}"
 end

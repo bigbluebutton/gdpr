@@ -1,6 +1,22 @@
 #!/usr/bin/ruby
 
 #
+# BlueButton open source conferencing system - http://www.bigbluebutton.org/
+#
+# Copyright (c) 2018 BigBlueButton Inc. and by respective authors (see below).
+#
+# This program is free software; you can redistribute it and/or modify it under the
+# terms of the GNU Lesser General Public License as published by the Free Software
+# Foundation; either version 3.0 of the License, or (at your option) any later
+# version.
+#
+# BigBlueButton is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License along
+# with BigBlueButton; if not, see <http://www.gnu.org/licenses/>.
+#
 # bbb-user-data-forget.rb
 #
 
@@ -14,7 +30,7 @@ $opts = Trollop.options do
   opt :dryrun, 'runs a dry run'
   opt :Delete, 'deletes user Data'
   opt :userId, 'userId', type: :string
-  opt :recordingID, 'recordingID', type: :string
+  opt :recordingPath, 'recordingPath', type: :string
 end
 
 $removalList = []
@@ -111,7 +127,6 @@ def delUserInfo(user_id, dir_id)
   table = Terminal::Table.new title: 'Info', headings: ["id: #{user_id}"], rows: rows
   puts table
   remove_audio(meeting_end - recording_start)
-  
 end
 
 def user?(event, user_id)
@@ -159,8 +174,8 @@ end
 
 def remove_audio(meetingDuration)
   if $audioFile.nil? || $removalList.nil?
-     puts('No audio file present.\n No audio has been removed')
-     return
+    puts('No audio file present.\n No audio has been removed')
+    return
   end
   total_time = 0
   command = ['ffmpeg', '-i', $audioFile, '-af']
@@ -240,11 +255,16 @@ def display_event(event, rows, delete, start = '', finish = '')
   rows << [e_name, get_uid(event), e_module, delete, start, finish]
 end
 
-if $opts[:userId].nil? || $opts[:recordingID].nil?
-  puts 'please provide userId and recording ID like so:'
-  puts './bbb-user-data-forget -u <userID> -r <recordingId>'
-  return
+def check_file_exist(pathtofile)
+  File.exist?("#{pathtofile}/events.xml")
 end
 
+if $opts[:userId].nil? || $opts[:recordingPath].nil?
+  puts 'please provide userId and recording path like so:'
+  puts './bbb-user-data-forget -u <userID> -r <recordingPath>'
+elsif check_file_exist(opts[:recordingPath].chomp('/'))
+  delUserInfo($opts[:userId], $opts[:recordingPath].chomp('/'))
+else
+  puts "The path you provided does not exist.\n Path: #{opts[:recordingPath]}"
+end
 
-delUserInfo($opts[:userId], $opts[:recordingID])
