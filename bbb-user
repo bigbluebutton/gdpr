@@ -1,0 +1,61 @@
+#!/usr/bin/ruby
+#
+# BlueButton open source conferencing system - http://www.bigbluebutton.org/
+#
+# Copyright (c) 2018 BigBlueButton Inc. and by respective authors (see below).
+#
+# This program is free software; you can redistribute it and/or modify it under the
+# terms of the GNU Lesser General Public License as published by the Free Software
+# Foundation; either version 3.0 of the License, or (at your option) any later
+# version.
+#
+# BigBlueButton is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License along
+# with BigBlueButton; if not, see <http://www.gnu.org/licenses/>.
+#
+# bbb-user.rb
+#
+
+require 'trollop'
+require 'nokogiri'
+require 'csv'
+require 'terminal-table'
+require './bbb-user-data.rb'
+require './bbb-user-data-forget'
+
+opts = Trollop.options do
+  opt :getData, 'get users data'
+  opt :DelData, 'delete users data'
+  opt :dryrun,  'dry run users data'
+  opt :userId, 'userId', type: :string
+  opt :recordingsPath, 'recordingPath', type: :string
+end
+
+def bbb_user_data_all(user_id, recordings_path)
+  system("mkdir #{user_id}; mkdir #{user_id}/videos; mkdir #{user_id}/deskshare; mkdir #{user_id}/audio; mkdir #{user_id}/presentation;")
+  if File.file?("#{user_id}/info.csv")
+    system("rm #{user_id}/info.csv")
+  end
+  Dir.glob("#{recordings_path}/*/events.xml") do |file|
+    bbb_user_data(user_id, File.dirname(file))
+  end
+  system ("zip -r #{user_id}.zip #{user_id};")
+  system (" rm -r #{user_id}")
+end
+
+def bbb_user_data_forget_all(user_id, recordings_path, dry)
+  Dir.glob("#{recordings_path}/*/events.xml") do |file|
+    bbb_user_data_forget(user_id, File.dirname(file), dry)
+  end
+  puts "User #{user_id} has been removed from the records."
+end
+
+if opts[:getData]
+  bbb_user_data_all(opts[:userId], opts[:recordingsPath])
+elsif opts[:DelData]
+  bbb_user_data_forget_all(opts[:userId], opts[:recordingsPath], opts[:dryrun])
+end
+

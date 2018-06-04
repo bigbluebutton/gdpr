@@ -20,23 +20,16 @@
 # bbb-user-data-forget.rb
 #
 
-require 'trollop'
 require 'nokogiri'
 require 'csv'
 require 'fileutils'
 require 'terminal-table'
 
-$opts = Trollop.options do
-  opt :dryrun, 'runs a dry run'
-  opt :Delete, 'deletes user Data'
-  opt :userId, 'userId', type: :string
-  opt :recordingPath, 'recordingPath', type: :string
-end
-
 $removalList = []
 $audioFile
 $meetingStart
 $start_speaking
+$dry
 
 def delUserInfo(user_id, dir_id)
   if user_id.nil?
@@ -169,12 +162,12 @@ def make_audio_removal_request(start, finish)
 end
 
 def dry?
-  $opts[:dryrun]
+  $dry
 end
 
 def remove_audio(meetingDuration)
-  if $audioFile.nil? || $removalList.nil?
-    puts('No audio file present.\n No audio has been removed')
+  if $audioFile.nil? || $removalList.empty?
+    puts("No audio file present.\n No audio has been removed")
     return
   end
   total_time = 0
@@ -202,7 +195,7 @@ def remove_audio(meetingDuration)
     puts 'All audio recordings have been removed'
   end
   puts "Recording total time: #{f_time(meetingDuration)} ."
-  puts "Total time that was going to be muted: #{f_time(total_time)} ."
+  puts "Total time muted: #{f_time(total_time)} ."
 end
 
 def removeParticipantMutedEvent(event, rows, directory, recording_start)
@@ -259,12 +252,14 @@ def check_file_exist(pathtofile)
   File.exist?("#{pathtofile}/events.xml")
 end
 
-if $opts[:userId].nil? || $opts[:recordingPath].nil?
-  puts 'please provide userId and recording path like so:'
-  puts './bbb-user-data-forget -u <userID> -r <recordingPath>'
-elsif check_file_exist(opts[:recordingPath].chomp('/'))
-  delUserInfo($opts[:userId], $opts[:recordingPath].chomp('/'))
-else
-  puts "The path you provided does not exist.\n Path: #{opts[:recordingPath]}"
+def bbb_user_data_forget(userId, recordingPath, dry)
+  $dry = dry
+  if userId.nil? || recordingPath.nil?
+    puts 'please provide userId and recording path like so:'
+    puts './bbb-user-data-forget -u <userID> -r <recordingPath>'
+  elsif check_file_exist(recordingPath.chomp('/'))
+    delUserInfo(userId, recordingPath.chomp('/'))
+  else
+    puts "The path you provided does not exist.\n Path: #{recordingPath}"
+  end
 end
-
