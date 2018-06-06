@@ -57,5 +57,6 @@ if opts[:getData]
   bbb_user_data_all(opts[:userId], opts[:recordingsPath])
 elsif opts[:DelData]
   bbb_user_data_forget_all(opts[:userId], opts[:recordingsPath], opts[:dryrun])
+else
+  puts "You did not specify which command you want to run.\n Please add -g for user's info or -D for deleting a user info at the end of your command"
 end
-
