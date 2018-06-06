@@ -35,7 +35,7 @@ $current_presenter = 'unknown'
 $copy_audio_list = []
 $recording_start
 $audioFile
-$endspeaking
+$endspeaking = 0
 
 def get_user_info(userid, dirid)
   rows = []
@@ -80,11 +80,16 @@ def handle_events(csv, userid, events, rows, directory)
     e_module = e.at_xpath('@module').to_s
     t_stamp = f_time(Integer(e.at_xpath('@timestamp').to_s) - meeting_start)
     e_name = e.at_xpath('@eventname').to_s
+    if e_name.eql?('StartRecordingEvent')
+       $recording_start = Integer(e.at_xpath('recordingTimestamp').content.to_s)
+       $endspeaking = 0
+    end
     e_name.eql?('SharePresentationEvent') && $current_presenter == userid && copy_presentation(e.at_xpath('presentationName').content.to_s, directory, userid)
     e_name.eql?('AssignPresenterEvent') && user?(e, userid) && $current_presenter = userid
     e_name.eql?('DeskshareStartedEvent') && $current_presenter == userid && copy_deskshare(userid, "#{directory}/deskshare/#{e.at_xpath('stream').content.to_s}")
-    e_name.eql?('StartRecordingEvent') && $recording_start = Integer(e.at_xpath('recordingTimestamp').content.to_s) && $endspeaking = $recording_start
-    user?(e, userid) && e_name.eql?('ParticipantTalkingEvent') && registerParticipantTalkingEvent(e, directory)
+    if e_name.eql?('ParticipantTalkingEvent') && user?(e, userid)
+      registerParticipantTalkingEvent(e, directory)
+    end
     next if %w[PRESENTATION WHITEBOARD].include? e_module
     user?(e, userid) && handle_event(e, e_name, t_stamp, e_module, csv, rows)
   end
@@ -170,7 +175,7 @@ end
 
 def copy_audio(user_id, dirname, meetingDuration, meeting_end)
   if $audioFile.nil? || $copy_audio_list.nil? || $copy_audio_list.empty?
-    puts('No audio file present or no recording of the user are in this file.\n No audio has been removed')
+    puts("No audio file present or no recording of the user are in this file.\n No audio has been removed")
     return
   end
   total_time = 0
@@ -189,7 +194,7 @@ def copy_audio(user_id, dirname, meetingDuration, meeting_end)
   filter += '\\,' + meeting_end.to_s + ')'
   filter += "'"
   total_time += Integer($endspeaking) - Integer(meeting_end)
-    
+
   command << filter
   command << '-y'
   command << 'temp.wav'
@@ -215,4 +220,9 @@ def bbb_user_data(userId,recordingPath)
   else
     puts "The path you provided does not exist.\n Path: #{recordingPath}"
   end
+  $copy_audio_list = [];
+  $recording_start = nil;
+  $audioFile = nil;
+  $endspeaking = nil;
+
 end
