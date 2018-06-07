@@ -33,5 +33,5 @@ To help you comply with the GDPR, this repository contains a tool -- `bbb-user` 
 ### Example of deleting users info:
 
 ~~~
-./bbb-user-forget -u <user_id> -r <recordings_dir_path> -D 
+./bbb-user -u w_g3btthk9p3cz -r /var/bigbluebutton/recording/raw/ -D 
 ~~~
