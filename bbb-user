@@ -25,32 +25,81 @@ require 'csv'
 require 'terminal-table'
 require './bbb-user-data.rb'
 require './bbb-user-data-forget'
+# require 'byebug'; byebug
 
 opts = Trollop.options do
   opt :getData, 'get users data'
   opt :DelData, 'delete users data'
   opt :dryrun,  'dry run users data'
   opt :userId, 'userId', type: :string
-  opt :recordingsPath, 'recordingPath', type: :string
+  opt :recordingsPath, 'recordingPath', type: :string, default: '/var/bigbluebutton/recording/raw/'
 end
 
 def bbb_user_data_all(user_id, recordings_path)
-  system("mkdir #{user_id}; mkdir #{user_id}/videos; mkdir #{user_id}/deskshare; mkdir #{user_id}/audio; mkdir #{user_id}/presentation;")
-  if File.file?("#{user_id}/info.csv")
-    system("rm #{user_id}/info.csv")
+  system("mkdir /tmp/#{user_id}; mkdir /tmp/#{user_id}/info; mkdir /tmp/#{user_id}/videos; mkdir /tmp/#{user_id}/deskshare; mkdir /tmp/#{user_id}/audio; mkdir /tmp/#{user_id}/presentation;")
+  # if File.file?("/tmp/#{user_id}/info/*.csv")
+  #   system("rm #{user_id}/info.csv")
+  # end
+  @files_checked = 0
+  @file_found = 0
+  # User not found in the provided directories
+  Dir.glob("#{recordings_path}*/events.xml") do |file|
+    result = bbb_user_data(user_id, File.dirname(file))
+    if result
+      @file_found += 1
+    end  
+    @files_checked += 1
   end
-  Dir.glob("#{recordings_path}/*/events.xml") do |file|
-    bbb_user_data(user_id, File.dirname(file))
-  end
-  system ("zip -r #{user_id}.zip #{user_id};")
-  system (" rm -r #{user_id}")
+    
+
+    if Dir.empty?("/tmp/#{user_id}/info")
+      puts "\nUser #{user_id} not found in #{@files_checked} recordings. \n"
+    else
+      puts "User #{user_id} found in #{@file_found} from #{@files_checked} recordings. \n"
+      system ("zip -r /tmp/#{user_id}.zip /tmp/#{user_id};")
+      system (" rm -r /tmp/#{user_id}")
+    end
 end
 
 def bbb_user_data_forget_all(user_id, recordings_path, dry)
+  @file_found = 0
+  @file_checked = 0
   Dir.glob("#{recordings_path}/*/events.xml") do |file|
-    bbb_user_data_forget(user_id, File.dirname(file), dry)
+    result = bbb_user_data_forget(user_id, File.dirname(file), dry)
+    if result
+      @file_found += 1
+    end
+    @file_checked += 1
   end
-  puts "User #{user_id} has been removed from the records."
+  if dry
+    puts "User was found in #{@file_found} from #{@file_checked}."
+  else
+    puts "User #{user_id} was removed from #{@file_found} from #{@file_checked}."
+  end
+end
+
+
+if opts[:userId].nil? || (!opts[:getData] && !opts[:DelData])
+  puts <<HERE
+
+./bbb-user -u <user_id> [-r <recordings_dir_path>] -g|-D
+
+Parameters
+
+  -u userID taken from an events.xml file
+  -r path to records drectory (default: /var/bigbluebutton/recording/raw)
+  -g get the personal information for a given userID
+  -D delete the personal information for a user from recordings.
+
+Dry run:
+
+  When specifying the '-D' option, you may also have bbb-user do a dry run for the deletion
+
+  -d Output results of delation without performing the deletion action
+
+HERE
+
+  exit
 end
 
 if opts[:getData]
@@ -58,5 +107,5 @@ if opts[:getData]
 elsif opts[:DelData]
   bbb_user_data_forget_all(opts[:userId], opts[:recordingsPath], opts[:dryrun])
 else
-  puts "You did not specify which command you want to run.\n Please add -g for user's info or -D for deleting a user info at the end of your command"
+  puts "error!"
 end

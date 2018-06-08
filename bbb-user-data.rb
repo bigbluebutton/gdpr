@@ -38,10 +38,19 @@ $audioFile
 $endspeaking = 0
 
 def get_user_info(userid, dirid)
+  
+  doc = Nokogiri::XML(File.open("#{dirid}/events.xml"))
+  participant = doc.xpath("//participant")
+  userExist= participant.any? {|participant| participant.text.eql? userid}
+  unless userExist
+    return false
+  end
+	
   rows = []
   $recording_start = 0
   meeting_end = 0
-  CSV.open("#{userid}/info.csv", 'a+') do |csv|
+   base= File.basename(dirid)
+  CSV.open("/tmp/#{userid}/info/#{base}-info.csv", 'a+') do |csv|
     # Search in all directories for a file of name events.xml
     csv << []
     csv << ["Info in database for user with ID(#{userid})"]
@@ -55,15 +64,16 @@ def get_user_info(userid, dirid)
       handle_events(csv, userid, events, rows, dirid)
     end
   end
-  display_table(userid, rows)
-  puts "user info's generated. Path: #{Dir.pwd}/info.csv"
+  display_table(userid, rows, dirid)
   copy_audio(userid, dirid, meeting_end - $recording_start, meeting_end)
+  return true
 end
 
-def display_table(user_id, rows)
+def display_table(user_id, rows, dir_id)
   # rows << "data concerning user with Id: #{user_id}"
-  table = Terminal::Table.new title: "Info for user with id: #{user_id}", headings: %w[event timestamp module], rows: rows
-  puts table
+    table = Terminal::Table.new title: "Info for user with id: #{user_id}", headings: %w[event timestamp module], rows: rows
+    puts "user info's generated. Path: /tmp/#{user_id}/info.csv"
+    puts table
 end
 
 def get_data(csv, userid, dirid)
@@ -199,7 +209,7 @@ def copy_audio(user_id, dirname, meetingDuration, meeting_end)
   command << '-y'
   command << 'temp.wav'
   system(*command)
-  FileUtils.mv 'temp.wav', "#{user_id}/audio/#{File.basename(dirname)}.wav"
+  FileUtils.mv 'temp.wav', "/tmp/#{user_id}/audio/#{File.basename(dirname)}.wav"
   puts 'All audio recordings have been editted and copied'
   puts "Recording total time: #{f_time(meetingDuration)} ."
   puts "Total time muted: #{f_time(total_time)} ."
@@ -214,7 +224,7 @@ def bbb_user_data(userId,recordingPath)
     puts 'please provide userId and recording ID like so:'
     puts './bbb-user-data -u <userID> -r <recordingPath>'
   elsif check_file_exist(recordingPath.chomp('/'))
-       get_user_info(userId, recordingPath.chomp('/'))
+        result = get_user_info(userId, recordingPath.chomp('/'))
     copy_video(userId, recordingPath.chomp('/'))
     # system ("zip -r #{userId}.zip #{userId}; rm -r #{userId}")
   else
@@ -224,5 +234,5 @@ def bbb_user_data(userId,recordingPath)
   $recording_start = nil;
   $audioFile = nil;
   $endspeaking = nil;
-
+  return result
 end

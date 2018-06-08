@@ -32,6 +32,14 @@ $start_speaking
 $dry
 
 def delUserInfo(user_id, dir_id)
+
+  doc = Nokogiri::XML(File.open("#{dir_id}/events.xml"))
+  participant = doc.xpath("//participant")
+  userExist= participant.any? {|participant| participant.text.eql? user_id}
+  unless userExist
+    return false
+  end
+
   if user_id.nil?
     puts 'You did not specify an id.'
     puts 'Please provide an id as an argument before you run this script'
@@ -103,7 +111,7 @@ def delUserInfo(user_id, dir_id)
         next
       end
       unless user?(event, user_id)
-        dry? && display_event(event, rows, '')
+        # dry? && display_event(event, rows, '')
         next
       end
       if e_name.eql? 'ParticipantJoinEvent'
@@ -117,9 +125,10 @@ def delUserInfo(user_id, dir_id)
   end
   puts dry? ? 'Dry run' : 'Data removal run'
   puts "data concerning user with Id: #{user_id}"
-  table = Terminal::Table.new title: 'Info', headings: ["id: #{user_id}"], rows: rows
+  table = Terminal::Table.new title: 'Info', headings: ["id: #{user_id}"," Meeting path: #{File.basename(dir_id)}"], rows: rows
   puts table
   remove_audio(meeting_end - recording_start)
+  true
 end
 
 def user?(event, user_id)
@@ -188,7 +197,7 @@ def remove_audio(meetingDuration)
   command << '-y'
   command << 'temp.wav'
   if dry?
-    puts "command that was going to run: \n#{command.join(' ')}"
+    # puts "command that was going to run: \n#{command.join(' ')}"
   else
     system(*command)
     FileUtils.mv 'temp.wav', $audioFile
@@ -234,12 +243,16 @@ def remove_event(event, rows, directory, r_start, meeting_start)
   e_name = event.at_xpath('@eventname').to_s
   e_timestamp = Integer(event.at_xpath('@timestamp').to_s)
   return if ['WHITEBOARD'].include? e_module.to_s
-  if e_name.eql? 'ParticipantJoinEvent'
+  case e_name
+  when 'ParticipantJoinEvent'  
     return display_event(event, rows, 'X', 'user joined at: ', f_time(e_timestamp - meeting_start))
+  when 'ParticipantMutedEvent'
+    removeParticipantMutedEvent(event, rows, directory, r_start)
+  when 'ParticipantTalkingEvent'
+    removeParticipantTalkingEvent(event, rows, directory, r_start)
+  else 
+    display_event(event, rows, 'X')
   end
-  e_name.eql?('ParticipantMutedEvent') && removeParticipantMutedEvent(event, rows, directory, r_start)
-  e_name.eql?('ParticipantTalkingEvent') && removeParticipantTalkingEvent(event, rows, directory, r_start)
-  display_event(event, rows, 'X')
 end
 
 def display_event(event, rows, delete, start = '', finish = '')
@@ -258,8 +271,14 @@ def bbb_user_data_forget(userId, recordingPath, dry)
     puts 'please provide userId and recording path like so:'
     puts './bbb-user-data-forget -u <userID> -r <recordingPath>'
   elsif check_file_exist(recordingPath.chomp('/'))
-    delUserInfo(userId, recordingPath.chomp('/'))
+    result = delUserInfo(userId, recordingPath.chomp('/'))
   else
     puts "The path you provided does not exist.\n Path: #{recordingPath}"
   end
+  $removalList = []
+  $audioFile = nil
+  $meetingStart = nil
+  $start_speaking = nil
+  $dry = nil
+  return result
 end
