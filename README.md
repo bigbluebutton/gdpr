@@ -57,7 +57,7 @@ When specifying the '-D' option, you may also have bbb-user do a dry run for the
 ### Example of deleting users info:
 
 ~~~
-./bbb-user-forget -u <user_id> [-r <recordings_dir_path>] -D 
+./bbb-user -u w_g3btthk9p3cz -r /var/bigbluebutton/recording/raw/ -D 
 ~~~
 
 
