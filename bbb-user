@@ -42,7 +42,10 @@ def bbb_user_data_all(user_id, recordings_path)
     bbb_user.user_data && files_found += 1
     files_checked += 1
   end
-  if Dir.empty?("/tmp/#{user_id}/info")
+  if files_checked <= 0
+    puts 'Could not find any recording in this Directory.'
+    puts "Path: #{recordings_path}"
+  elsif Dir.empty?("/tmp/#{user_id}/info")
     puts "User #{user_id} not found in #{files_checked} recordings.\n"
   else
     puts "User #{user_id} found in #{files_found} out of #{files_checked} recordings."
@@ -59,8 +62,14 @@ def bbb_user_data_forget_all(user_id, recordings_path, dry)
     bbb_user_forget.delUserInfo && file_found += 1
     file_checked += 1
   end
-  if dry
+  if file_checked <= 0
+    puts 'Could not find any recording in this Directory.'
+    puts "Path provided: #{recordings_path}"
+  elsif dry
     puts "User was found in #{file_found} out of #{file_checked}."
+  elsif file_found <= 0
+    puts "user #{user_id} was not found in any record."
+    puts 'Make sure you spelled your user correctly.'
   else
     puts "User #{user_id} was removed from #{file_found} out of #{file_checked}."
   end
@@ -85,8 +94,11 @@ class BbbUserData
     @meeting_end = @meeting_start = 0
     @dirid = dirid
     @recording_start = 0
+    @speaking = false
     @csv = nil
     @row = []
+    @last_seen = 0
+    @recording_stop = 0
     @end_speaking = 0
     @copy_audio_list = []
     @audio_file = Dir.glob("#{@dirid}/audio/*.wav").first ||  
@@ -131,7 +143,7 @@ class BbbUserData
     doc = Nokogiri::XML(File.open(File.expand_path(file)))
     events = doc.xpath('//event')
     @meeting_start = Integer(events.first.at_xpath('@timestamp').to_s)
-    @meeting_end = Integer(events.last.at_xpath('@timestamp').to_s)
+    @meeting_end = @recording_stop = Integer(events.last.at_xpath('@timestamp').to_s)
     handle_events(events)
   end
 
@@ -139,7 +151,7 @@ class BbbUserData
     table = Terminal::Table.new title: "Info for user with id: #{@userid}",
                                 headings: %w[event timestamp module],
                                 rows: @row
-    puts "user info's generated. Path: /tmp/#{@user_id}/info.csv"
+    puts "user info's generated. Path: /tmp/#{@userid}/info.csv"
     puts table
   end
 
@@ -147,11 +159,11 @@ class BbbUserData
     e_name = event.at_xpath('@eventname').to_s
     if %w[StopWebcamShareEvent StartWebcamShareEvent].include? e_name
       e_stream = event.at_xpath('stream').content.to_s
-      return e_stream.include? @user_id
+      return e_stream.include? @userid
     end
     get_uid(event) == @userid
   end
-  
+
   def get_uid(event)
     userid = event.at_xpath('userId') ||
              event.at_xpath('userid') ||
@@ -162,11 +174,13 @@ class BbbUserData
 
   def handle_events (events)
     events.each do |e|
-      next if %w[PRESENTATION WHITEBOARD].include? e.at_xpath('@module').to_s
+      next if %w[WHITEBOARD].include? e.at_xpath('@module').to_s
       e_name = e.at_xpath('@eventname').to_s
       case e_name
       when 'StartRecordingEvent'
         @recording_start = Integer(e.at_xpath('recordingTimestamp').content.to_s)
+      when 'StopRecordingEvent'
+        @recording_stop = Integer(e.at_xpath('recordingTimestamp').content.to_s)  
       when 'SharePresentationEvent'
         next unless @current_presenter == @userid
         copy_presentation(e.at_xpath('presentationName').content.to_s)
@@ -177,11 +191,13 @@ class BbbUserData
       next unless user?(e)
       case e_name
       when 'AssignPresenterEvent'
-        user?(e) && @current_presenter = @userid
+        @current_presenter = @userid
       when 'ParticipantTalkingEvent'
-        user?(e) && register_participant_talking_event(e)
+        register_participant_talking_event(e)
       when 'ParticipantMutedEvent'
-        user?(e) && register_participant_muted_event(e)
+        register_participant_muted_event(e)
+      when 'ParticipantLeftEvent'
+        register_participant_left_event(e)
       end
       handle_event(e)
     end
@@ -189,7 +205,7 @@ class BbbUserData
 
   def handle_event(e)
     e_module = e.at_xpath('@module').to_s
-    t_stamp = f_time(Integer(e.at_xpath('@timestamp').to_s) - @meeting_start)
+    t_stamp = f_time(Integer(e.at_xpath('@timestamp').to_s) - @recording_start)
     e_name = e.at_xpath('@eventname').to_s
     @csv << if e_module.eql? 'CHAT'
               [e_name, t_stamp, e_module, e.at_xpath('message').content.to_s.strip]
@@ -206,38 +222,52 @@ class BbbUserData
   def copy_video
     Dir.glob("#{@dirid}/video/*/*.flv") do |videofile|
       if videofile.include?(@userid)
-        system("cp #{videofile} #{@userid}/videos/")
+        system("cp #{videofile} /tmp/#{@userid}/videos/")
       end
     end
   end
 
   def copy_deskshare(stream_dir)
-    desk_file = Dir.glob("#{stream_dir}.*").first
-    system("cp -r #{desk_file} /tmp/#{@user_id}/deskshare/")
+    desk_file = Dir.glob("#{stream_dir}.*") do |deskshare|
+      system("cp -r #{deskshare} /tmp/#{@userid}/deskshare/")
+    end
   end
 
   def copy_presentation(p_file)
-    command = "cp -r #{@dirid}/presentation/#{p_file} /tmp/#{@user_id}/presentation/"
+    command = "cp -r #{@dirid}/presentation/#{p_file} /tmp/#{@userid}/presentation/"
     system(command)
-    puts("#{p_file} copied.")
   end
 
-  def register_participant_muted_event(e)
-    return if true?(e.at_xpath('muted').content.to_s)
-    e_timestamp = Integer(e.at_xpath('@timestamp').to_s) - @recording_start
-    puts "req -r audio: [#{f_time(@end_speaking)}, #{f_time(e_timestamp)}]"
-    request = make_audio_removal_request(@end_speaking.to_s, e_timestamp.to_s)
-    @copy_audio_list.push(request)
-    @end_speaking = e_timestamp
+  def register_participant_muted_event(event)
+    e_timestamp = Integer(event.at_xpath('@timestamp').to_s) - @recording_start
+    putc '.'
+    if true?(event.at_xpath('muted').content.to_s)
+      @last_seen = e_timestamp
+      if @speaking
+        @copy_audio_list.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
+        @speaking = false
+      end
+    end
   end
 
   def register_participant_talking_event(event)
-    e_timestamp = Integer(event.at_xpath('@timestamp').to_s) - @recording_start
+    e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
     if true?(event.at_xpath('talking').content)
-      puts "req -r audio: [#{f_time(@end_speaking)}, #{f_time(e_timestamp)}]"
-      @copy_audio_list.push(make_audio_removal_request(@end_speaking.to_s, e_timestamp.to_s))
+      @start_speaking = e_timestamp
+      @speaking = true
     else
-      @end_speaking = e_timestamp
+      putc '.'
+      @copy_audio_list.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
+      @speaking = false
+    end
+  end
+
+  def register_participant_left_event(event)
+    if @speaking
+      e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
+      putc '.'
+      @copy_audio_list.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
+      display_event(event, 'X', 'Participant left:', f_time(e_timestamp))
     end
   end
 
@@ -251,33 +281,40 @@ class BbbUserData
 
   def copy_audio
     if @audio_file.nil? || @copy_audio_list.empty?
-      puts << "No audio or for this user present in this file.
-               No audio has been removed"
+      puts "No audio or for this user present in this file.\nNo audio has been removed"
       return
     end
-    meetingDuration = @meeting_end - @meeting_start
+    recordingDuration = @recording_stop - @recording_start
     total_time = 0
     command = ['ffmpeg', '-i', @audio_file, '-af']
     filter = "volume=volume=0:enable='"
+
+    filter += 'between(t\\,' + '100'
+    filter += '\\,' + @copy_audio_list.first[:start] + ')'
+    total_time += Integer(@copy_audio_list.first[:start])
+    filter += '+'
     loop do
-      filter += 'between(t\\,' + @copy_audio_list.first[:start]
-      filter += '\\,' + @copy_audio_list.first[:finish] + ')'
-      total_time += Integer(@copy_audio_list.first[:finish]) - Integer(@copy_audio_list.first[:start])
+      putc '.'
+      @start = @copy_audio_list.first[:finish]
       @copy_audio_list.shift
+      if @copy_audio_list.empty?
+        filter += 'between(t\\,' + @start
+        filter += '\\,' + recordingDuration.to_s + ')'
+        total_time += recordingDuration - Integer(@start)
+        break
+      end
+      filter += 'between(t\\,' + @start
+      filter += '\\,' + @copy_audio_list.first[:start] + ')'
+      total_time += Integer(@copy_audio_list.first[:start]) - Integer(@start)
       filter += '+'
-      @copy_audio_list.empty? && break
     end
-    filter += 'between(t\\,' + @end_speaking.to_s
-    filter += '\\,' + @meeting_end.to_s + ')'
-    filter += "'"
-    total_time += (@meeting_end - @meeting_start) - @end_speaking
     command << filter
     command << '-y'
-    command << 'temp.wav'
+    command << "temp#{File.extname(@audio_file)}"
     system(*command)
-    FileUtils.mv 'temp.wav', "/tmp/#{@userid}/audio/#{File.basename(@dirid)}.wav"
+    FileUtils.mv 'temp.wav', "/tmp/#{@userid}/audio/#{File.basename(@dirid)}#{File.extname(@audio_file)}"
     puts 'All audio recordings have been editted and copied'
-    puts "Recording total time: #{f_time(meetingDuration)} ."
+    puts "Recording total time: #{f_time(recordingDuration)} ."
     puts "Total time muted: #{f_time(total_time)} ."
   end
 
@@ -309,6 +346,7 @@ class BbbUserDataForget
     @dir_id = dir_id
     @dry = dry
     @rows = []
+    @speaking = false
     @rows << %w[event user_Id module removed start end]
     @audio_file = Dir.glob("#{@dir_id}/audio/*.wav").first ||  
                   Dir.glob("#{@dir_id}/audio/*.opus").first
@@ -327,6 +365,8 @@ class BbbUserDataForget
     unless user_exist?
       return false
     end
+    puts @dry ? 'Dry run' : 'Data removal run'
+    puts "data concerning user with Id: #{@user_id}"
     @current_presenter = 'unknown'
 
     file = Dir.glob("#{@dir_id}/events.xml").first
@@ -340,7 +380,6 @@ class BbbUserDataForget
       case e_name
       when 'StartRecordingEvent'
         @recording_start = Integer(event.at_xpath('recordingTimestamp').content.to_s)
-        display_event(event, '', 'start Recording at: ', f_time(@recording_start - @meeting_start))
         next
       when 'AssignPresenterEvent'
         @current_presenter = event.at_xpath('userid').content.to_s
@@ -397,10 +436,9 @@ class BbbUserDataForget
     end
     File.open(File.expand_path(file), 'w') { |f| doc.write_xml_to f }
     remove_video
-    puts @dry ? 'Dry run' : 'Data removal run'
-    puts "data concerning user with Id: #{@user_id}"
+    puts
     table = Terminal::Table.new title: 'Info',
-                                headings: ["id: #{@user_id}"," Meeting path: #{File.basename(@dir_id)}"], 
+                                headings: ["id: #{@user_id}", " Meeting path: #{File.basename(@dir_id)}"], 
                                 rows: @rows
     puts table
     remove_audio
@@ -472,16 +510,24 @@ class BbbUserDataForget
   end
 
   def f_time(time)
-    Time.at(time / 1000).utc.strftime('%H:%M:%S')
+    # Time.at(time / 1000).utc.strftime('%H:%M:%S')
+    time
   end
 
   def removeParticipantMutedEvent(event)
-    !true?(event.at_xpath('muted').content.to_s) && return
     e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
-    puts "req -r audio: [#{f_time(@start_speaking)}, #{f_time(e_timestamp)}]"
-    @removalList.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
-    display_event(event, 'X', 'mic muted:', f_time(e_timestamp))
-    @start_speaking = e_timestamp
+    if true?(event.at_xpath('muted').content.to_s) 
+        putc '.'
+        if @speaking
+          @removalList.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
+          @speaking = false
+        end
+        display_event(event, 'X', 'mic muted:', f_time(e_timestamp))
+    else 
+      e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
+      putc '.'
+      display_event(event, 'X', 'mic unmuted:', f_time(e_timestamp))
+    end
     !@dry && remove_audio_event(event)
   end
 
@@ -489,12 +535,23 @@ class BbbUserDataForget
     e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
     if true?(event.at_xpath('talking').content)
       @start_speaking = e_timestamp
+      @speaking = true
       display_event(event, 'X', 'mic on:', f_time(e_timestamp))
     else
-      puts "req -r audio: [#{f_time(@start_speaking)}, #{f_time(e_timestamp)}]"
+      putc '.'
       @removalList.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
       display_event(event, 'X', 'mic off:', f_time(e_timestamp))
-      @start_speaking = e_timestamp
+      @speaking = false
+    end
+    !@dry && remove_audio_event(event)
+  end
+
+  def remove_participant_left_event(event)
+    if @speaking
+      e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
+      putc '.'
+      @removalList.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
+      display_event(event, 'X', 'Participant left:', f_time(e_timestamp))
     end
     !@dry && remove_audio_event(event)
   end
@@ -514,18 +571,28 @@ class BbbUserDataForget
       return display_event(event, 'X', 'user joined at: ', f_time(e_timestamp - @meeting_start))
     when 'ParticipantMutedEvent'
       removeParticipantMutedEvent(event)
+    when 'ParticipantLeftEvent'
+      remove_participant_left_event(event)
     when 'ParticipantTalkingEvent'
       removeParticipantTalkingEvent(event)
+    when 'StartWebcamShareEvent', 'StopWebcamShareEvent'
+      remove_start_stop_share_event(event)
     else
       display_event(event, 'X')
     end
+  end
+
+  def remove_start_stop_share_event(event)
+    e_name = event.at_xpath('@eventname')
+    e_module = event.at_xpath('@module')
+    @rows << [e_name, @user_id, e_module, 'X', '', '']
   end
 
   def display_event(event, delete, start = '', finish = '')
     e_name = event.at_xpath('@eventname')
     e_module = event.at_xpath('@module')
     u_name = get_uid(event)
-    unless u_name.eql? 'unknown'
+    if u_name.eql? 'unknown'
       u_name = @current_presenter
     end
     @rows << [e_name, u_name, e_module, delete, start, finish]
@@ -559,11 +626,11 @@ HERE
   exit
 end
 
+abort("Script doesn't have sudo persmissions.\nAre you root?") unless Process.uid == 0
 if opts[:getData]
   bbb_user_data_all(opts[:userId], opts[:recordingsPath])
 elsif opts[:DelData]
-  abort("Script doesn't have write persmission.\nAre you root?") unless Process.uid == 0
   bbb_user_data_forget_all(opts[:userId], opts[:recordingsPath], opts[:dryrun])
 else
-  puts "error!"
+  puts 'Error!'
 end
