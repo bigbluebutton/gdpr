@@ -46,7 +46,7 @@ def bbb_user_data_all(user_id, recordings_path)
     puts 'Could not find any recording in this Directory.'
     puts "Path: #{recordings_path}"
   elsif Dir.empty?("/tmp/#{user_id}/info")
-    puts "User #{user_id} not found in #{files_checked} recordings.\n"
+    puts "User #{user_id} was not found in #{files_checked} recordings.\n"
   else
     puts "User #{user_id} found in #{files_found} out of #{files_checked} recordings."
     system "zip -r /tmp/#{user_id}.zip /tmp/#{user_id};"
@@ -68,7 +68,7 @@ def bbb_user_data_forget_all(user_id, recordings_path, dry)
   elsif dry
     puts "User was found in #{file_found} out of #{file_checked}."
   elsif file_found <= 0
-    puts "user #{user_id} was not found in any record."
+    puts "User #{user_id} was not found in any record."
     puts 'Make sure you spelled your user correctly.'
   else
     puts "User #{user_id} was removed from #{file_found} out of #{file_checked}."
@@ -165,10 +165,10 @@ class BbbUserData
   end
 
   def get_uid(event)
-    userid = event.at_xpath('userId') ||
-             event.at_xpath('userid') ||
-             event.at_xpath('senderId') ||
-             event.at_xpath('participant')
+    userid =event.at_xpath('userId') ||
+            event.at_xpath('userid') ||
+            event.at_xpath('senderId') ||
+            event.at_xpath('participant')               
     userid.nil? ? 'unkown' : userid.content
   end
 
@@ -187,11 +187,11 @@ class BbbUserData
       when 'DeskshareStartedEvent'
         next unless @current_presenter == @userid
         copy_deskshare("#{@dirid}/deskshare/#{e.at_xpath('stream').content}")
+      when 'AssignPresenterEvent'
+        @current_presenter = get_uid(e)
       end
       next unless user?(e)
       case e_name
-      when 'AssignPresenterEvent'
-        @current_presenter = @userid
       when 'ParticipantTalkingEvent'
         register_participant_talking_event(e)
       when 'ParticipantMutedEvent'
@@ -228,7 +228,7 @@ class BbbUserData
   end
 
   def copy_deskshare(stream_dir)
-    desk_file = Dir.glob("#{stream_dir}.*") do |deskshare|
+    Dir.glob("#{stream_dir}.*") do |deskshare|
       system("cp -r #{deskshare} /tmp/#{@userid}/deskshare/")
     end
   end
@@ -267,7 +267,6 @@ class BbbUserData
       e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
       putc '.'
       @copy_audio_list.push(make_audio_removal_request(@start_speaking.to_s, e_timestamp.to_s))
-      display_event(event, 'X', 'Participant left:', f_time(e_timestamp))
     end
   end
 
@@ -281,7 +280,7 @@ class BbbUserData
 
   def copy_audio
     if @audio_file.nil? || @copy_audio_list.empty?
-      puts "No audio or for this user present in this file.\nNo audio has been removed"
+      puts "User did not speak in this recording.\nNo audio has been removed"
       return
     end
     recordingDuration = @recording_stop - @recording_start
@@ -312,7 +311,7 @@ class BbbUserData
     command << '-y'
     command << "temp#{File.extname(@audio_file)}"
     system(*command)
-    FileUtils.mv 'temp.wav', "/tmp/#{@userid}/audio/#{File.basename(@dirid)}#{File.extname(@audio_file)}"
+    FileUtils.mv "temp#{File.extname(@audio_file)}", "/tmp/#{@userid}/audio/#{File.basename(@dirid)}#{File.extname(@audio_file)}"
     puts 'All audio recordings have been editted and copied'
     puts "Recording total time: #{f_time(recordingDuration)} ."
     puts "Total time muted: #{f_time(total_time)} ."
@@ -346,6 +345,7 @@ class BbbUserDataForget
     @dir_id = dir_id
     @dry = dry
     @rows = []
+    @deltedlist = []
     @speaking = false
     @rows << %w[event user_Id module removed start end]
     @audio_file = Dir.glob("#{@dir_id}/audio/*.wav").first ||  
@@ -392,11 +392,14 @@ class BbbUserDataForget
         if @current_presenter == @user_id
           pres_dir = event.at_xpath('presentationName').content.to_s
           if @dry
-            puts "presentation folder to be deleter #{pres_dir}"
+            puts "presentation file to be deleted #{pres_dir}"
             display_event(event, 'X')
           else
-            system("rm -r #{@dir_id}/presentation/#{pres_dir}")
-            puts "presentation file #{@dir_id}/presentation/#{pres_dir} deleted."
+            unless @deltedlist.include? pres_dir
+              @deltedlist.push(pres_dir)
+              system("rm -r #{@dir_id}/presentation/#{pres_dir}")
+              puts "presentation file #{@dir_id}/presentation/#{pres_dir} deleted."
+            end  
             remove_event(event)
           end
           next
@@ -455,6 +458,11 @@ class BbbUserDataForget
   end
 
   def get_uid(event)
+    if (%W[PRESENTATION].include? event.at_xpath('@module').to_s)
+        return @current_presenter
+    elsif (%W[PollStartedRecordEvent PollStoppedRecordEvent].include? event.at_xpath('@eventname').to_s)
+      return @current_presenter
+    end  
     userid = event.at_xpath('userId') ||
              event.at_xpath('userid') ||
              event.at_xpath('senderId') ||
@@ -510,8 +518,7 @@ class BbbUserDataForget
   end
 
   def f_time(time)
-    # Time.at(time / 1000).utc.strftime('%H:%M:%S')
-    time
+    Time.at(time / 1000).utc.strftime('%H:%M:%S')
   end
 
   def removeParticipantMutedEvent(event)
@@ -592,9 +599,6 @@ class BbbUserDataForget
     e_name = event.at_xpath('@eventname')
     e_module = event.at_xpath('@module')
     u_name = get_uid(event)
-    if u_name.eql? 'unknown'
-      u_name = @current_presenter
-    end
     @rows << [e_name, u_name, e_module, delete, start, finish]
   end
 
