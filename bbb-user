@@ -45,7 +45,7 @@ def bbb_user_data_all(user_id, recordings_path)
   if files_checked <= 0
     puts 'Could not find any recording in this Directory.'
     puts "Path: #{recordings_path}"
-  elsif Dir.empty?("/tmp/#{user_id}/info")
+  elsif Dir.entries("/tmp/#{user_id}/info").size <= 2 
     puts "User #{user_id} was not found in #{files_checked} recordings.\n"
   else
     puts "User #{user_id} found in #{files_found} out of #{files_checked} recordings."
