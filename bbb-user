@@ -59,7 +59,12 @@ def bbb_user_data_forget_all(user_id, recordings_path, dry)
   file_found = file_checked = 0
   Dir.glob("#{recordings_path}*/events.xml") do |file|
     bbb_user_forget =  BbbUserDataForget.new(user_id, File.dirname(file), dry)
-    bbb_user_forget.delUserInfo && file_found += 1
+    if bbb_user_forget.delUserInfo 
+      file_found += 1
+      puts system("bbb-record --rebuild #{File.basename(File.dirname(file))}")
+      puts "bbb record #{File.basename(File.dirname(file))} is rebuilding."
+      puts 'Please be patient until you see the changes.'
+    end
     file_checked += 1
   end
   if file_checked <= 0
@@ -251,7 +256,7 @@ class BbbUserData
   end
 
   def register_participant_talking_event(event)
-    e_timestamp = (Integer(event.at_xpath('@timestamp').to_s) - @recording_start)
+    e_timestamp = Integer(event.at_xpath('@timestamp').to_s) - @recording_start
     if true?(event.at_xpath('talking').content)
       @start_speaking = e_timestamp
       @speaking = true
@@ -288,8 +293,8 @@ class BbbUserData
     command = ['ffmpeg', '-i', @audio_file, '-af']
     filter = "volume=volume=0:enable='"
 
-    filter += 'between(t\\,' + '100'
-    filter += '\\,' + @copy_audio_list.first[:start] + ')'
+    filter += 'between(t\\,1'
+    filter += "\\,#{ Integer(@copy_audio_list.first[:start])  / 1000})"
     total_time += Integer(@copy_audio_list.first[:start])
     filter += '+'
     loop do
@@ -297,13 +302,13 @@ class BbbUserData
       @start = @copy_audio_list.first[:finish]
       @copy_audio_list.shift
       if @copy_audio_list.empty?
-        filter += 'between(t\\,' + @start
-        filter += '\\,' + recordingDuration.to_s + ')'
+        filter += "between(t\\,#{Integer(@start) / 1000}"
+        filter += "\\,#{recordingDuration / 1000})"
         total_time += recordingDuration - Integer(@start)
         break
       end
-      filter += 'between(t\\,' + @start
-      filter += '\\,' + @copy_audio_list.first[:start] + ')'
+      filter += "between(t\\,#{Integer(@start) / 1000}"
+      filter += "\\,#{ Integer(@copy_audio_list.first[:start]) / 1000 })"
       total_time += Integer(@copy_audio_list.first[:start]) - Integer(@start)
       filter += '+'
     end
@@ -383,6 +388,7 @@ class BbbUserDataForget
         next
       when 'AssignPresenterEvent'
         @current_presenter = event.at_xpath('userid').content.to_s
+        remove_event(event)
       when 'ResizeAndMoveSlideEvent', 'GotoSlideEvent'
         if @current_presenter == @user_id
           remove_event(event)
@@ -437,14 +443,14 @@ class BbbUserDataForget
         remove_event(event)
       end
     end
-    File.open(File.expand_path(file), 'w') { |f| doc.write_xml_to f }
     remove_video
     puts
     table = Terminal::Table.new title: 'Info',
-                                headings: ["id: #{@user_id}", " Meeting path: #{File.basename(@dir_id)}"], 
-                                rows: @rows
+    headings: ["id: #{@user_id}", " Meeting path: #{File.basename(@dir_id)}"], 
+    rows: @rows
     puts table
     remove_audio
+    File.open(File.expand_path(file), 'w') { |f| doc.write_xml_to f }
     true
   end
 
@@ -463,7 +469,8 @@ class BbbUserDataForget
     elsif (%W[PollStartedRecordEvent PollStoppedRecordEvent].include? event.at_xpath('@eventname').to_s)
       return @current_presenter
     end  
-    userid = event.at_xpath('userId') ||
+    userid = event.at_xpath('assignedBy') ||
+             event.at_xpath('userId') ||
              event.at_xpath('userid') ||
              event.at_xpath('senderId') ||
              event.at_xpath('participant')
@@ -494,8 +501,8 @@ class BbbUserDataForget
     filter = "volume=volume=0:enable='"
 
     loop do
-      filter += 'between(t\\,' + @removalList.first[:start]
-      filter += '\\,' + @removalList.first[:finish] + ')'
+      filter += "between(t\\,#{Integer(@removalList.first[:start]) / 1000}"
+      filter += "\\,#{Integer(@removalList.first[:finish]) / 1000})"
       total_time += Integer(@removalList.first[:finish]) - Integer(@removalList.first[:start])
       @removalList.shift
       @removalList.empty? && break
