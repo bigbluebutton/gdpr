@@ -18,7 +18,7 @@ As an administrator of a BigBlueButton server, this repository contains a tool -
 Clone out this repository on a BigBlueButton 2.0 (or later) server.  Before you run, you will first need to install the gem `terminal-table`.
 
 ~~~
- gem install terminal-table
+ gem install nokogiri terminal-table trollop
 ~~~
 
 move bbb-user to /bin folder
